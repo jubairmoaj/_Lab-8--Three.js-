@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Three.js Final Project - Car On The Road</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            background: #050607;
+        }
+
+        #hud {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            padding: 10px 12px;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            color: #f3f6ff;
+            font-size: 13px;
+            line-height: 1.45;
+            border-radius: 8px;
+            user-select: none;
+        }
+
+        #hud b {
+            color: #ffe084;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="hud">
+        <div><b>Keyboard:</b> A/D or Left/Right = move camera around car</div>
+        <div><b>Keyboard:</b> W/S = camera height, Q/E = zoom in/out</div>
+        <div><b>Mouse:</b> move to rotate light around road</div>
+    </div>
+
+    <script src="js/three.js"></script>
+
+    <script id="litVertex" type="x-shader/x-vertex">
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPos;
+
+        void main() {
+            vUv = uv;
+            vNormal = normalize(normalMatrix * normal);
+
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
+            vWorldPos = worldPos.xyz;
+
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    </script>
+
+    <script id="litFragment" type="x-shader/x-fragment">
+        uniform sampler2D uTexture;
+        uniform vec3 uLightPos;
+        uniform vec3 uLightColor;
+        uniform vec3 uAmbientColor;
+        uniform vec3 uTint;
+        uniform vec3 uViewPos;
+        uniform vec2 uUvScale;
+        uniform vec2 uUvOffset;
+
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPos;
+
+        void main() {
+            vec2 sampleUv = vUv * uUvScale + uUvOffset;
+            vec3 texColor = texture2D(uTexture, sampleUv).rgb;
+            vec3 base = texColor * uTint;
+
+            vec3 N = normalize(vNormal);
+            vec3 L = normalize(uLightPos - vWorldPos);
+            vec3 V = normalize(uViewPos - vWorldPos);
+            vec3 H = normalize(L + V);
+
+            float diff = max(dot(N, L), 0.0);
+            float spec = pow(max(dot(N, H), 0.0), 30.0);
+
+            vec3 lit = base * (uAmbientColor + diff * uLightColor) + (0.22 * spec * uLightColor);
+            gl_FragColor = vec4(lit, 1.0);
+        }
+    </script>
+
+    <script>
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b111a);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        document.body.appendChild(renderer.domElement);
+
+        // Perspective projection (required)
+        const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
+
+        const cameraOrbit = {
+            angle: 0,
+            radius: 12,
+            height: 4
+        };
+
+        function updateCamera() {
+            camera.position.x = Math.cos(cameraOrbit.angle) * cameraOrbit.radius;
+            camera.position.z = Math.sin(cameraOrbit.angle) * cameraOrbit.radius;
+            camera.position.y = cameraOrbit.height;
+            camera.lookAt(0, 1.25, 0);
+        }
+
+        updateCamera();
+
+        const ambient = new THREE.AmbientLight(0x3a4657, 0.58);
+        scene.add(ambient);
+
+        const pointLight = new THREE.PointLight(0xfff2cc, 1.95, 150);
+        scene.add(pointLight);
+
+        const fillLight = new THREE.HemisphereLight(0x88a8ff, 0x1c2d1c, 0.28);
+        scene.add(fillLight);
+
+        const lightMarker = new THREE.Mesh(
+            new THREE.SphereGeometry(0.16, 12, 12),
+            new THREE.MeshBasicMaterial({ color: 0xfff2cc })
+        );
+        scene.add(lightMarker);
+
+        const lightState = {
+            angle: 0,
+            radius: 18,
+            height: 7
+        };
+
+        function updateLightPosition() {
+            pointLight.position.set(
+                Math.cos(lightState.angle) * lightState.radius,
+                lightState.height,
+                Math.sin(lightState.angle) * lightState.radius
+            );
+            lightMarker.position.copy(pointLight.position);
+        }
+
+        updateLightPosition();
+
+        function createRoadTexture() {
+            const size = 1024;
+            const c = document.createElement("canvas");
+            c.width = size;
+            c.height = size;
+            const g = c.getContext("2d");
+
+            g.fillStyle = "#2f3338";
+            g.fillRect(0, 0, size, size);
+
+            for (let i = 0; i < 3200; i++) {
+                const x = Math.random() * size;
+                const y = Math.random() * size;
+                const shade = 42 + Math.floor(Math.random() * 38);
+                g.fillStyle = "rgb(" + shade + "," + shade + "," + shade + ")";
+                g.fillRect(x, y, 2, 2);
+            }
+
+            g.fillStyle = "#d7d7d7";
+            g.fillRect(size * 0.16, 0, 8, size);
+            g.fillRect(size * 0.84, 0, 8, size);
+
+            g.fillStyle = "#f2d072";
+            const dashCount = 22;
+            for (let i = 0; i < dashCount; i++) {
+                const y = (i / dashCount) * size;
+                g.fillRect(size * 0.5 - 6, y, 12, size / (dashCount * 2.15));
+            }
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(6, 24);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createCarPaintTexture() {
+            const size = 512;
+            const c = document.createElement("canvas");
+            c.width = size;
+            c.height = size;
+            const g = c.getContext("2d");
+
+            const grad = g.createLinearGradient(0, 0, size, size);
+            grad.addColorStop(0, "#d84f38");
+            grad.addColorStop(0.48, "#a5271c");
+            grad.addColorStop(1, "#6e1814");
+            g.fillStyle = grad;
+            g.fillRect(0, 0, size, size);
+
+            for (let i = 0; i < 4200; i++) {
+                const x = Math.random() * size;
+                const y = Math.random() * size;
+                const alpha = 0.04 + Math.random() * 0.09;
+                g.fillStyle = "rgba(255,255,255," + alpha + ")";
+                g.fillRect(x, y, 1, 1);
+            }
+
+            g.fillStyle = "rgba(255,255,255,0.16)";
+            g.fillRect(0, size * 0.22, size, size * 0.08);
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(1, 1);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createTireTexture() {
+            const c = document.createElement("canvas");
+            c.width = 256;
+            c.height = 64;
+            const g = c.getContext("2d");
+
+            g.fillStyle = "#3d3d3d";
+            g.fillRect(0, 0, c.width, c.height);
+
+            for (let x = 0; x < c.width; x += 12) {
+                g.fillStyle = x % 24 === 0 ? "#2f2f2f" : "#515151";
+                g.fillRect(x, 0, 6, c.height);
+            }
+
+            for (let y = 4; y < c.height; y += 10) {
+                g.fillStyle = "rgba(255,255,255,0.08)";
+                g.fillRect(0, y, c.width, 2);
+            }
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(1, 1);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createRimTexture() {
+            const size = 256;
+            const c = document.createElement("canvas");
+            c.width = size;
+            c.height = size;
+            const g = c.getContext("2d");
+            const center = size / 2;
+
+            const rad = g.createRadialGradient(center, center, 8, center, center, center);
+            rad.addColorStop(0, "#ffffff");
+            rad.addColorStop(0.4, "#d7dce3");
+            rad.addColorStop(0.8, "#8f9aa8");
+            rad.addColorStop(1, "#5f6774");
+            g.fillStyle = rad;
+            g.fillRect(0, 0, size, size);
+
+            g.strokeStyle = "rgba(255,255,255,0.5)";
+            g.lineWidth = 6;
+            g.beginPath();
+            g.arc(center, center, size * 0.33, 0, Math.PI * 2);
+            g.stroke();
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = THREE.ClampToEdgeWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        const roadTexture = createRoadTexture();
+        const carPaintTexture = createCarPaintTexture();
+        const tireTexture = createTireTexture();
+        const rimTexture = createRimTexture();
+        const roadMoveSpeed = 6.2;
+        const roadSegmentLength = 40;
+        const roadSegmentCount = 7;
+        const roadTrackLength = roadSegmentLength * roadSegmentCount;
+        const roadHalfSpan = Math.floor(roadSegmentCount / 2) * roadSegmentLength;
+        const roadSegments = [];
+
+        const commonVertex = document.getElementById("litVertex").textContent;
+        const commonFragment = document.getElementById("litFragment").textContent;
+
+        const roadMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                uTexture: { value: roadTexture },
+                uLightPos: { value: pointLight.position },
+                uLightColor: { value: new THREE.Color(0.95, 0.93, 0.85) },
+                uAmbientColor: { value: new THREE.Color(0.24, 0.24, 0.24) },
+                uTint: { value: new THREE.Color(0.82, 0.82, 0.82) },
+                uViewPos: { value: camera.position.clone() },
+                uUvScale: { value: new THREE.Vector2(1, 3) },
+                uUvOffset: { value: new THREE.Vector2(0, 0) }
+            },
+            vertexShader: commonVertex,
+            fragmentShader: commonFragment,
+            side: THREE.DoubleSide
+        });
+
+        for (let i = 0; i < roadSegmentCount; i++) {
+            const road = new THREE.Mesh(new THREE.PlaneGeometry(30, roadSegmentLength, 1, 1), roadMaterial);
+            road.rotation.x = -Math.PI / 2;
+            road.position.y = -0.02;
+            road.position.z = (i * roadSegmentLength) - roadHalfSpan;
+            scene.add(road);
+            roadSegments.push(road);
+        }
+
+        const carMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                uTexture: { value: carPaintTexture },
+                uLightPos: { value: pointLight.position },
+                uLightColor: { value: new THREE.Color(1.0, 0.95, 0.86) },
+                uAmbientColor: { value: new THREE.Color(0.24, 0.23, 0.23) },
+                uTint: { value: new THREE.Color(1.0, 0.9, 0.85) },
+                uViewPos: { value: camera.position.clone() },
+                uUvScale: { value: new THREE.Vector2(1, 1) },
+                uUvOffset: { value: new THREE.Vector2(0, 0) }
+            },
+            vertexShader: commonVertex,
+            fragmentShader: commonFragment
+        });
+
+        const tireMaterial = new THREE.MeshPhongMaterial({
+            map: tireTexture,
+            color: 0x565656,
+            shininess: 10
+        });
+
+        const rimMaterial = new THREE.MeshPhongMaterial({
+            map: rimTexture,
+            color: 0xd0d7df,
+            shininess: 145
+        });
+
+        const glassMaterial = new THREE.MeshPhongMaterial({
+            color: 0x8fb9db,
+            transparent: true,
+            opacity: 0.5,
+            shininess: 120,
+            specular: 0xd1e9ff
+        });
+
+        const trimMaterial = new THREE.MeshPhongMaterial({
+            color: 0x131519,
+            shininess: 70
+        });
+
+        const headlightMaterial = new THREE.MeshPhongMaterial({
+            color: 0xfff3cb,
+            emissive: 0x4a3300,
+            shininess: 120
+        });
+
+        const tailLightMaterial = new THREE.MeshPhongMaterial({
+            color: 0xff3a31,
+            emissive: 0x3a0909,
+            shininess: 90
+        });
+
+        const carGroup = new THREE.Group();
+        scene.add(carGroup);
+        // Align car heading with the road direction.
+        carGroup.rotation.y = Math.PI / 2;
+
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.7, 2.1), carMaterial);
+        chassis.position.y = 0.98;
+        carGroup.add(chassis);
+
+        const hood = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.45, 2.0), carMaterial);
+        hood.position.set(1.25, 1.33, 0);
+        carGroup.add(hood);
+
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.75, 1.8), carMaterial);
+        cabin.position.set(-0.1, 1.65, 0);
+        carGroup.add(cabin);
+
+        const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.42, 1.95), carMaterial);
+        trunk.position.set(-1.55, 1.28, 0);
+        carGroup.add(trunk);
+
+        const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 2.06), trimMaterial);
+        frontBumper.position.set(2.18, 0.83, 0);
+        carGroup.add(frontBumper);
+
+        const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 2.06), trimMaterial);
+        rearBumper.position.set(-2.18, 0.83, 0);
+        carGroup.add(rearBumper);
+
+        const windshield = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.48, 1.62), glassMaterial);
+        windshield.position.set(0.55, 1.64, 0);
+        windshield.rotation.z = THREE.MathUtils.degToRad(18);
+        carGroup.add(windshield);
+
+        const rearWindow = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.45, 1.6), glassMaterial);
+        rearWindow.position.set(-0.8, 1.62, 0);
+        rearWindow.rotation.z = THREE.MathUtils.degToRad(-14);
+        carGroup.add(rearWindow);
+
+        const sideWindowLeft = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 0.05), glassMaterial);
+        sideWindowLeft.position.set(-0.1, 1.66, 0.89);
+        carGroup.add(sideWindowLeft);
+
+        const sideWindowRight = sideWindowLeft.clone();
+        sideWindowRight.position.z = -0.89;
+        carGroup.add(sideWindowRight);
+
+        const headlightL = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), headlightMaterial);
+        headlightL.position.set(2.13, 1.0, 0.65);
+        carGroup.add(headlightL);
+
+        const headlightR = headlightL.clone();
+        headlightR.position.z = -0.65;
+        carGroup.add(headlightR);
+
+        const tailLightL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.32), tailLightMaterial);
+        tailLightL.position.set(-2.14, 0.98, 0.68);
+        carGroup.add(tailLightL);
+
+        const tailLightR = tailLightL.clone();
+        tailLightR.position.z = -0.68;
+        carGroup.add(tailLightR);
+
+        const wheelGroups = [];
+        const tireGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.42, 28);
+        const rimGeo = new THREE.CylinderGeometry(0.23, 0.23, 0.05, 22);
+
+        const wheelPositions = [
+            [1.38, 0.5, 1.08],
+            [1.38, 0.5, -1.08],
+            [-1.3, 0.5, 1.08],
+            [-1.3, 0.5, -1.08]
+        ];
+
+        for (let i = 0; i < wheelPositions.length; i++) {
+            const group = new THREE.Group();
+            group.position.set(wheelPositions[i][0], wheelPositions[i][1], wheelPositions[i][2]);
+
+            const tire = new THREE.Mesh(tireGeo, tireMaterial);
+            tire.rotation.x = Math.PI / 2;
+            group.add(tire);
+
+            const rimNear = new THREE.Mesh(rimGeo, rimMaterial);
+            rimNear.rotation.x = Math.PI / 2;
+            rimNear.position.z = 0.19;
+            group.add(rimNear);
+
+            const rimFar = rimNear.clone();
+            rimFar.position.z = -0.19;
+            group.add(rimFar);
+
+            const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.44, 14), trimMaterial);
+            cap.rotation.x = Math.PI / 2;
+            group.add(cap);
+
+            carGroup.add(group);
+            wheelGroups.push(group);
+        }
+
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(260, 260, 1, 1),
+            new THREE.MeshPhongMaterial({ color: 0x243622, shininess: 0 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.05;
+        scene.add(ground);
+
+        const keyState = {};
+        const controlKeys = new Set([
+            "arrowleft",
+            "arrowright",
+            "arrowup",
+            "arrowdown",
+            "a",
+            "d",
+            "w",
+            "s",
+            "q",
+            "e"
+        ]);
+
+        document.addEventListener("keydown", function (e) {
+            const key = e.key.toLowerCase();
+            keyState[key] = true;
+            if (controlKeys.has(key)) {
+                e.preventDefault();
+            }
+        });
+
+        document.addEventListener("keyup", function (e) {
+            keyState[e.key.toLowerCase()] = false;
+        });
+
+        document.addEventListener("mousemove", function (e) {
+            const nx = (e.clientX / window.innerWidth) * 2 - 1;
+            const ny = (e.clientY / window.innerHeight) * 2 - 1;
+
+            // Mouse interaction: rotate light around the road.
+            lightState.angle = nx * Math.PI;
+            lightState.height = 4.3 + (1 - (ny + 1) / 2) * 7.0;
+        });
+
+        function handleKeyboard(delta) {
+            const orbitSpeed = 1.6;
+            const zoomSpeed = 7;
+            const heightSpeed = 6;
+
+            if (keyState["arrowleft"] || keyState["a"]) {
+                cameraOrbit.angle += orbitSpeed * delta;
+            }
+            if (keyState["arrowright"] || keyState["d"]) {
+                cameraOrbit.angle -= orbitSpeed * delta;
+            }
+            if (keyState["q"]) {
+                cameraOrbit.radius += zoomSpeed * delta;
+            }
+            if (keyState["e"]) {
+                cameraOrbit.radius -= zoomSpeed * delta;
+            }
+            if (keyState["w"] || keyState["arrowup"]) {
+                cameraOrbit.height += heightSpeed * delta;
+            }
+            if (keyState["s"] || keyState["arrowdown"]) {
+                cameraOrbit.height -= heightSpeed * delta;
+            }
+
+            cameraOrbit.radius = THREE.MathUtils.clamp(cameraOrbit.radius, 6, 32);
+            cameraOrbit.height = THREE.MathUtils.clamp(cameraOrbit.height, 1.8, 14);
+        }
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            handleKeyboard(delta);
+            updateCamera();
+            updateLightPosition();
+
+            roadMaterial.uniforms.uViewPos.value.copy(camera.position);
+            carMaterial.uniforms.uViewPos.value.copy(camera.position);
+
+            // Move road segments; recycle each old segment to the front one by one.
+            for (let i = 0; i < roadSegments.length; i++) {
+                const segment = roadSegments[i];
+                segment.position.z += roadMoveSpeed * delta;
+                if (segment.position.z > roadHalfSpan) {
+                    segment.position.z -= roadTrackLength;
+                }
+            }
+
+            // Animation: car wheels rotate.
+            const wheelSpin = 5.8;
+            for (let i = 0; i < wheelGroups.length; i++) {
+                wheelGroups[i].rotation.z -= wheelSpin * delta;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.addEventListener("resize", function () {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+
+</html>
