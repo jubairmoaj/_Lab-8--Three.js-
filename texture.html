@@ -415,6 +415,7 @@
             new THREE.SphereGeometry(0.16, 12, 12),
             new THREE.MeshBasicMaterial({ color: 0xfff2cc })
         );
+        lightMarker.visible = false;
         scene.add(lightMarker);
 
         // lightState stores the actual light position. target is where the mouse wants it to go.
