@@ -14,6 +14,7 @@
             overflow: hidden;
             font-family: "Trebuchet MS", "Segoe UI", sans-serif;
             background: #050607;
+            cursor: crosshair;
         }
 
         #hud {
@@ -40,7 +41,7 @@
     <div id="hud">
         <div><b>Keyboard:</b> A/D or Left/Right = move camera around car</div>
         <div><b>Keyboard:</b> W/S = camera height, Q/E = zoom in/out</div>
-        <div><b>Mouse:</b> move to rotate light around road</div>
+        <div><b>Mouse:</b> move = light position, wheel = light height</div>
     </div>
 
     <script src="js/three.js"></script>
@@ -136,21 +137,104 @@
         );
         scene.add(lightMarker);
 
+        const lightGroundMarker = new THREE.Mesh(
+            new THREE.RingGeometry(0.42, 0.56, 32),
+            new THREE.MeshBasicMaterial({
+                color: 0xfff2cc,
+                transparent: true,
+                opacity: 0.78,
+                side: THREE.DoubleSide
+            })
+        );
+        lightGroundMarker.rotation.x = -Math.PI / 2;
+        lightGroundMarker.position.y = 0.025;
+        lightGroundMarker.visible = false;
+        scene.add(lightGroundMarker);
+
+        const lightGuide = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 1, 0)
+            ]),
+            new THREE.LineBasicMaterial({
+                color: 0xfff2cc,
+                transparent: true,
+                opacity: 0.55
+            })
+        );
+        lightGuide.visible = false;
+        scene.add(lightGuide);
+
         const lightState = {
-            angle: 0,
-            radius: 18,
-            height: 7
+            position: new THREE.Vector3(0, 5, 0),
+            target: new THREE.Vector3(0, 5, 0),
+            height: 5,
+            minHeight: 1.5,
+            maxHeight: 10
         };
 
-        function updateLightPosition() {
-            pointLight.position.set(
-                Math.cos(lightState.angle) * lightState.radius,
-                lightState.height,
-                Math.sin(lightState.angle) * lightState.radius
-            );
+        const lightControl = {
+            hasPointer: true,
+            clientX: window.innerWidth / 2,
+            clientY: window.innerHeight / 2,
+            pointer: new THREE.Vector2(),
+            raycaster: new THREE.Raycaster(),
+            roadPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+            heightPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -lightState.height),
+            hitPoint: new THREE.Vector3(),
+            maxX: 18,
+            maxZ: 70,
+            smoothing: 18
+        };
+
+        function updateLightPosition(delta) {
+            const alpha = delta === undefined ? 1 : 1 - Math.exp(-lightControl.smoothing * delta);
+            lightState.position.lerp(lightState.target, alpha);
+            pointLight.position.copy(lightState.position);
             lightMarker.position.copy(pointLight.position);
+
+            lightGroundMarker.position.x = pointLight.position.x;
+            lightGroundMarker.position.z = pointLight.position.z;
+
+            const guidePosition = lightGuide.geometry.attributes.position;
+            guidePosition.setXYZ(0, pointLight.position.x, lightGroundMarker.position.y, pointLight.position.z);
+            guidePosition.setXYZ(1, pointLight.position.x, pointLight.position.y, pointLight.position.z);
+            guidePosition.needsUpdate = true;
         }
 
+        function setLightTargetFromPointer() {
+            if (!lightControl.hasPointer) {
+                return;
+            }
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            const x = ((lightControl.clientX - rect.left) / rect.width) * 2 - 1;
+            const y = -((lightControl.clientY - rect.top) / rect.height) * 2 + 1;
+
+            lightControl.pointer.set(
+                THREE.MathUtils.clamp(x, -1, 1),
+                THREE.MathUtils.clamp(y, -1, 1)
+            );
+            lightControl.raycaster.setFromCamera(lightControl.pointer, camera);
+
+            const ray = lightControl.raycaster.ray;
+            let hit = ray.intersectPlane(lightControl.roadPlane, lightControl.hitPoint);
+
+            if (!hit) {
+                lightControl.heightPlane.constant = -lightState.height;
+                hit = ray.intersectPlane(lightControl.heightPlane, lightControl.hitPoint);
+            }
+
+            if (hit) {
+                lightState.target.set(
+                    THREE.MathUtils.clamp(lightControl.hitPoint.x, -lightControl.maxX, lightControl.maxX),
+                    lightState.height,
+                    THREE.MathUtils.clamp(lightControl.hitPoint.z, -lightControl.maxZ, lightControl.maxZ)
+                );
+            }
+        }
+
+        setLightTargetFromPointer();
         updateLightPosition();
 
         function createRoadTexture() {
@@ -503,14 +587,22 @@
             keyState[e.key.toLowerCase()] = false;
         });
 
-        document.addEventListener("mousemove", function (e) {
-            const nx = (e.clientX / window.innerWidth) * 2 - 1;
-            const ny = (e.clientY / window.innerHeight) * 2 - 1;
-
-            // Mouse interaction: rotate light around the road.
-            lightState.angle = nx * Math.PI;
-            lightState.height = 4.3 + (1 - (ny + 1) / 2) * 7.0;
+        renderer.domElement.addEventListener("pointermove", function (e) {
+            lightControl.hasPointer = true;
+            lightControl.clientX = e.clientX;
+            lightControl.clientY = e.clientY;
+            setLightTargetFromPointer();
         });
+
+        renderer.domElement.addEventListener("wheel", function (e) {
+            e.preventDefault();
+            lightState.height = THREE.MathUtils.clamp(
+                lightState.height - e.deltaY * 0.005,
+                lightState.minHeight,
+                lightState.maxHeight
+            );
+            setLightTargetFromPointer();
+        }, { passive: false });
 
         function handleKeyboard(delta) {
             const orbitSpeed = 1.6;
@@ -548,7 +640,8 @@
             const delta = clock.getDelta();
             handleKeyboard(delta);
             updateCamera();
-            updateLightPosition();
+            setLightTargetFromPointer();
+            updateLightPosition(delta);
 
             roadMaterial.uniforms.uViewPos.value.copy(camera.position);
             carMaterial.uniforms.uViewPos.value.copy(camera.position);
