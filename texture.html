@@ -102,6 +102,7 @@
         // Basic Three.js setup: scene holds objects, renderer draws them, camera views them.
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0b111a);
+        scene.fog = new THREE.Fog(0x172233, 85, 210);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -127,6 +128,278 @@
         }
 
         updateCamera();
+
+        function createSkyTexture() {
+            // A canvas texture makes the sky without needing an external image file.
+            const width = 2048;
+            const height = 1024;
+            const c = document.createElement("canvas");
+            c.width = width;
+            c.height = height;
+            const g = c.getContext("2d");
+
+            const skyGradient = g.createLinearGradient(0, 0, 0, height);
+            skyGradient.addColorStop(0, "#020612");
+            skyGradient.addColorStop(0.35, "#08162b");
+            skyGradient.addColorStop(0.66, "#1d3145");
+            skyGradient.addColorStop(1, "#5c6d72");
+            g.fillStyle = skyGradient;
+            g.fillRect(0, 0, width, height);
+
+            const horizonGlow = g.createLinearGradient(0, height * 0.52, 0, height);
+            horizonGlow.addColorStop(0, "rgba(255,255,255,0)");
+            horizonGlow.addColorStop(0.62, "rgba(245,214,170,0.16)");
+            horizonGlow.addColorStop(1, "rgba(128,156,155,0.22)");
+            g.fillStyle = horizonGlow;
+            g.fillRect(0, 0, width, height);
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createMoonGlowTexture() {
+            const size = 256;
+            const c = document.createElement("canvas");
+            c.width = size;
+            c.height = size;
+            const g = c.getContext("2d");
+            const glow = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+            glow.addColorStop(0, "rgba(255,246,218,0.9)");
+            glow.addColorStop(0.26, "rgba(255,238,190,0.42)");
+            glow.addColorStop(1, "rgba(255,238,190,0)");
+            g.fillStyle = glow;
+            g.fillRect(0, 0, size, size);
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createCloudTexture() {
+            const size = 512;
+            const c = document.createElement("canvas");
+            c.width = size;
+            c.height = size;
+            const g = c.getContext("2d");
+
+            g.clearRect(0, 0, size, size);
+            g.globalCompositeOperation = "source-over";
+
+            const puffs = [
+                [150, 270, 110, 42],
+                [230, 230, 150, 58],
+                [330, 270, 125, 46],
+                [265, 295, 190, 45],
+                [105, 305, 90, 30],
+                [405, 310, 95, 32]
+            ];
+
+            for (let i = 0; i < puffs.length; i++) {
+                const puff = puffs[i];
+                const gradient = g.createRadialGradient(puff[0], puff[1], 8, puff[0], puff[1], puff[2]);
+                gradient.addColorStop(0, "rgba(235,243,255,0.46)");
+                gradient.addColorStop(0.52, "rgba(190,210,226,0.25)");
+                gradient.addColorStop(1, "rgba(190,210,226,0)");
+                g.fillStyle = gradient;
+                g.beginPath();
+                g.ellipse(puff[0], puff[1], puff[2], puff[3], 0, 0, Math.PI * 2);
+                g.fill();
+            }
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createStarField() {
+            // Stars are real points in the scene. The shader changes brightness over time.
+            const starCount = 620;
+            const positions = new Float32Array(starCount * 3);
+            const phases = new Float32Array(starCount);
+            const speeds = new Float32Array(starCount);
+            const sizes = new Float32Array(starCount);
+            const radius = 205;
+            const moonDirection = moonPosition.clone().normalize();
+            const moonClearCos = Math.cos(THREE.MathUtils.degToRad(24));
+            const moonSoftCos = Math.cos(THREE.MathUtils.degToRad(38));
+            const candidateDirection = new THREE.Vector3();
+
+            for (let i = 0; i < starCount; i++) {
+                const i3 = i * 3;
+                let x = 0;
+                let y = 0;
+                let z = 0;
+                let accepted = false;
+
+                while (!accepted) {
+                    const elevation = THREE.MathUtils.degToRad(5 + Math.random() * 48);
+                    const azimuth = i < starCount * 0.52
+                        ? Math.PI * 1.5 + (Math.random() - 0.5) * 1.35
+                        : Math.random() * Math.PI * 2;
+                    const distance = radius - Math.random() * 18;
+
+                    x = Math.cos(elevation) * Math.sin(azimuth) * distance;
+                    y = Math.sin(elevation) * distance;
+                    z = Math.cos(elevation) * Math.cos(azimuth) * distance;
+
+                    candidateDirection.set(x, y, z).normalize();
+                    const moonCloseness = candidateDirection.dot(moonDirection);
+
+                    if (moonCloseness > moonClearCos) {
+                        continue;
+                    }
+
+                    accepted = moonCloseness <= moonSoftCos || Math.random() > 0.9;
+                }
+
+                positions[i3] = x;
+                positions[i3 + 1] = y;
+                positions[i3 + 2] = z;
+                phases[i] = Math.random() * Math.PI * 2;
+                speeds[i] = 0.7 + Math.random() * 1.8;
+                sizes[i] = 2.3 + Math.random() * 2.6;
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute("aPhase", new THREE.BufferAttribute(phases, 1));
+            geometry.setAttribute("aSpeed", new THREE.BufferAttribute(speeds, 1));
+            geometry.setAttribute("aBaseSize", new THREE.BufferAttribute(sizes, 1));
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uPixelRatio: { value: renderer.getPixelRatio() }
+                },
+                vertexShader: [
+                    "attribute float aPhase;",
+                    "attribute float aSpeed;",
+                    "attribute float aBaseSize;",
+                    "uniform float uTime;",
+                    "uniform float uPixelRatio;",
+                    "varying float vAlpha;",
+                    "void main() {",
+                    "    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);",
+                    "    float twinkle = 0.55 + 0.45 * sin(uTime * aSpeed + aPhase);",
+                    "    vAlpha = 0.34 + twinkle * 0.66;",
+                    "    gl_PointSize = aBaseSize * uPixelRatio * (260.0 / -mvPosition.z);",
+                    "    gl_Position = projectionMatrix * mvPosition;",
+                    "}"
+                ].join("\n"),
+                fragmentShader: [
+                    "varying float vAlpha;",
+                    "void main() {",
+                    "    vec2 p = gl_PointCoord - vec2(0.5);",
+                    "    float d = length(p);",
+                    "    float glow = smoothstep(0.5, 0.0, d);",
+                    "    float core = smoothstep(0.17, 0.0, d);",
+                    "    float alpha = (glow * 0.58 + core * 0.86) * vAlpha;",
+                    "    gl_FragColor = vec4(0.88, 0.94, 1.0, alpha);",
+                    "}"
+                ].join("\n"),
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                fog: false
+            });
+
+            const stars = new THREE.Points(geometry, material);
+            stars.name = "Twinkling Star Field";
+            return stars;
+        }
+
+        // The sky is a large sphere viewed from the inside.
+        const skyDome = new THREE.Mesh(
+            new THREE.SphereGeometry(220, 64, 32),
+            new THREE.MeshBasicMaterial({
+                map: createSkyTexture(),
+                side: THREE.BackSide,
+                fog: false,
+                depthWrite: false
+            })
+        );
+        skyDome.name = "Procedural Sky Dome";
+        scene.add(skyDome);
+
+        const moonPosition = new THREE.Vector3(-92, 22, -18);
+        const moon = new THREE.Mesh(
+            new THREE.SphereGeometry(4.2, 32, 16),
+            new THREE.MeshBasicMaterial({ color: 0xfff4d6, fog: false })
+        );
+        moon.name = "Moon";
+        moon.position.copy(moonPosition);
+        scene.add(moon);
+
+        const moonGlow = new THREE.Sprite(
+            new THREE.SpriteMaterial({
+                map: createMoonGlowTexture(),
+                transparent: true,
+                depthWrite: false,
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                fog: false
+            })
+        );
+        moonGlow.name = "Moon Glow";
+        moonGlow.position.copy(moonPosition);
+        moonGlow.scale.set(38, 38, 1);
+        scene.add(moonGlow);
+
+        const moonLight = new THREE.DirectionalLight(0x9eb8ff, 0.24);
+        moonLight.position.copy(moonPosition);
+        scene.add(moonLight);
+
+        const starField = createStarField();
+        scene.add(starField);
+
+        const cloudTexture = createCloudTexture();
+        const movingClouds = [];
+
+        function addMovingCloud(x, y, z, width, height, speed, opacity) {
+            const cloud = new THREE.Sprite(
+                new THREE.SpriteMaterial({
+                    map: cloudTexture,
+                    transparent: true,
+                    opacity: opacity,
+                    depthWrite: false,
+                    fog: false
+                })
+            );
+
+            cloud.position.set(x, y, z);
+            cloud.scale.set(width, height, 1);
+            cloud.renderOrder = -2;
+            cloud.userData.speed = speed;
+            cloud.userData.baseOpacity = opacity;
+            cloud.userData.phase = Math.random() * Math.PI * 2;
+            scene.add(cloud);
+            movingClouds.push(cloud);
+        }
+
+        addMovingCloud(-125, 29, -82, 44, 12, 4.6, 0.33);
+        addMovingCloud(-132, 36, -34, 58, 14, 3.4, 0.26);
+        addMovingCloud(-118, 25, 30, 50, 12, 5.2, 0.3);
+        addMovingCloud(-138, 41, 78, 64, 16, 2.6, 0.22);
+        addMovingCloud(-128, 33, 118, 48, 11, 4.0, 0.28);
+
+        function updateSkyAnimation(delta, elapsed) {
+            starField.material.uniforms.uTime.value = elapsed;
+
+            for (let i = 0; i < movingClouds.length; i++) {
+                const cloud = movingClouds[i];
+                cloud.position.z += cloud.userData.speed * delta;
+
+                if (cloud.position.z > 135) {
+                    cloud.position.z = -120;
+                }
+
+                cloud.material.opacity = cloud.userData.baseOpacity +
+                    Math.sin(elapsed * 0.35 + cloud.userData.phase) * 0.035;
+            }
+        }
 
         // Ambient and hemisphere lights give soft base light. The point light is the main movable light.
         const ambient = new THREE.AmbientLight(0x3a4657, 0.58);
@@ -259,6 +532,7 @@
         const roadTrackLength = roadSegmentLength * roadSegmentCount;
         const roadHalfSpan = Math.floor(roadSegmentCount / 2) * roadSegmentLength;
         const roadSegments = [];
+        const roadsideSegments = [];
 
         const commonVertex = document.getElementById("litVertex").textContent;
         const commonFragment = document.getElementById("litFragment").textContent;
@@ -280,7 +554,112 @@
             side: THREE.DoubleSide
         });
 
-        // Build seven flat road planes. They are placed one after another on the Z axis.
+        const buildingBodyGeometry = new THREE.BoxGeometry(1, 1, 1);
+        const buildingRoofGeometry = new THREE.BoxGeometry(1, 1, 1);
+        const windowGeometry = new THREE.BoxGeometry(0.06, 0.32, 0.42);
+        const trunkGeometry = new THREE.CylinderGeometry(0.12, 0.16, 1.2, 10);
+        const treeTopGeometry = new THREE.ConeGeometry(0.72, 1.6, 12);
+        const buildingMaterials = [
+            new THREE.MeshPhongMaterial({ color: 0x4d5968, shininess: 20 }),
+            new THREE.MeshPhongMaterial({ color: 0x665f58, shininess: 18 }),
+            new THREE.MeshPhongMaterial({ color: 0x596b61, shininess: 18 }),
+            new THREE.MeshPhongMaterial({ color: 0x6d5962, shininess: 16 })
+        ];
+        const buildingRoofMaterial = new THREE.MeshPhongMaterial({ color: 0x22262d, shininess: 35 });
+        const windowMaterial = new THREE.MeshBasicMaterial({ color: 0xb8d7ff });
+        const trunkMaterial = new THREE.MeshPhongMaterial({ color: 0x5b3520, shininess: 8 });
+        const leafMaterials = [
+            new THREE.MeshPhongMaterial({ color: 0x1f6f3a, shininess: 10 }),
+            new THREE.MeshPhongMaterial({ color: 0x2d813f, shininess: 10 }),
+            new THREE.MeshPhongMaterial({ color: 0x3b6d2d, shininess: 8 })
+        ];
+
+        function createBuilding(localX, localZ, width, height, depth, materialIndex, rows, columns) {
+            const group = new THREE.Group();
+            group.position.set(localX, 0, localZ);
+
+            const body = new THREE.Mesh(buildingBodyGeometry, buildingMaterials[materialIndex % buildingMaterials.length]);
+            body.scale.set(width, height, depth);
+            body.position.y = height / 2;
+            group.add(body);
+
+            const roof = new THREE.Mesh(buildingRoofGeometry, buildingRoofMaterial);
+            roof.scale.set(width * 1.08, 0.22, depth * 1.08);
+            roof.position.y = height + 0.11;
+            group.add(roof);
+
+            // Windows are placed only on the face looking toward the road.
+            const side = localX > 0 ? 1 : -1;
+            const faceX = -side * (width / 2 + 0.04);
+            for (let row = 0; row < rows; row++) {
+                const y = 1 + row * ((height - 1.6) / Math.max(rows - 1, 1));
+                for (let col = 0; col < columns; col++) {
+                    const z = -depth / 2 + 0.75 + col * ((depth - 1.5) / Math.max(columns - 1, 1));
+                    const windowMesh = new THREE.Mesh(windowGeometry, windowMaterial);
+                    windowMesh.position.set(faceX, y, z);
+                    group.add(windowMesh);
+                }
+            }
+
+            return group;
+        }
+
+        function createTree(localX, localZ, scale, materialIndex) {
+            const group = new THREE.Group();
+            group.position.set(localX, 0, localZ);
+            group.scale.setScalar(scale);
+
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 0.6;
+            group.add(trunk);
+
+            const treeTop = new THREE.Mesh(treeTopGeometry, leafMaterials[materialIndex % leafMaterials.length]);
+            treeTop.position.y = 1.65;
+            group.add(treeTop);
+
+            return group;
+        }
+
+        function createRoadsideSegment(segmentIndex) {
+            // Each scenery segment is separate but moves with the matching road segment.
+            const group = new THREE.Group();
+            const sideSigns = [-1, 1];
+
+            for (let i = 0; i < sideSigns.length; i++) {
+                const side = sideSigns[i];
+                const offset = segmentIndex + i;
+
+                group.add(createBuilding(
+                    side * (24 + (offset % 2) * 3),
+                    -10,
+                    4.2 + (offset % 3) * 0.7,
+                    4.5 + (offset % 4) * 1.1,
+                    6.5,
+                    offset,
+                    3 + (offset % 2),
+                    3
+                ));
+
+                group.add(createBuilding(
+                    side * (31 + (offset % 3) * 2),
+                    12,
+                    5.2,
+                    6.5 + (offset % 3) * 1.2,
+                    7.5,
+                    offset + 2,
+                    4,
+                    4
+                ));
+
+                group.add(createTree(side * 18.2, -17, 0.95 + (offset % 2) * 0.12, offset));
+                group.add(createTree(side * 19.4, 0, 0.85 + (offset % 3) * 0.1, offset + 1));
+                group.add(createTree(side * 18.8, 18, 1.0 + (offset % 2) * 0.1, offset + 2));
+            }
+
+            return group;
+        }
+
+        // Build seven flat road planes. Matching roadside groups contain buildings and trees.
         for (let i = 0; i < roadSegmentCount; i++) {
             const road = new THREE.Mesh(new THREE.PlaneGeometry(30, roadSegmentLength, 1, 1), roadMaterial);
             road.rotation.x = -Math.PI / 2;
@@ -288,6 +667,11 @@
             road.position.z = (i * roadSegmentLength) - roadHalfSpan;
             scene.add(road);
             roadSegments.push(road);
+
+            const roadside = createRoadsideSegment(i);
+            roadside.position.z = road.position.z;
+            scene.add(roadside);
+            roadsideSegments.push(roadside);
         }
 
         const importedCarGroup = new THREE.Group();
@@ -481,16 +865,18 @@
             updateCamera();
             setLightTargetFromPointer();
             updateLightPosition(delta);
+            updateSkyAnimation(delta, clock.elapsedTime);
 
             roadMaterial.uniforms.uViewPos.value.copy(camera.position);
 
-            // Move road segments; recycle each old segment to keep the road endless.
+            // Move road segments and their roadside scenery; recycle old segments to keep the road endless.
             for (let i = 0; i < roadSegments.length; i++) {
                 const segment = roadSegments[i];
                 segment.position.z += roadMoveSpeed * delta;
                 if (segment.position.z > roadHalfSpan) {
                     segment.position.z -= roadTrackLength;
                 }
+                roadsideSegments[i].position.z = segment.position.z;
             }
 
             // Rotate imported wheel meshes so the car looks like it is moving.
@@ -508,6 +894,7 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            starField.material.uniforms.uPixelRatio.value = renderer.getPixelRatio();
         });
     </script>
 </body>
