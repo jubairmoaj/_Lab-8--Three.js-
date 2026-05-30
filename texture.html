@@ -44,10 +44,12 @@
         <div><b>Mouse:</b> move = light position, wheel = light height</div>
     </div>
 
+    <!-- Three.js renders the 3D scene. GLTFLoader loads the car model. DRACOLoader decodes the compressed Ferrari model. -->
     <script src="js/three.js"></script>
     <script src="js/GLTFLoader.js"></script>
     <script src="js/DRACOLoader.js"></script>
 
+    <!-- Custom shaders are used for the road so the mouse-controlled point light affects it clearly. -->
     <script id="litVertex" type="x-shader/x-vertex">
         varying vec2 vUv;
         varying vec3 vNormal;
@@ -97,6 +99,7 @@
     </script>
 
     <script>
+        // Basic Three.js setup: scene holds objects, renderer draws them, camera views them.
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0b111a);
 
@@ -106,9 +109,10 @@
         renderer.outputEncoding = THREE.sRGBEncoding;
         document.body.appendChild(renderer.domElement);
 
-        // Perspective projection (required)
+        // Perspective projection gives depth, like a real camera lens.
         const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
 
+        // These values control the camera orbit around the center car position.
         const cameraOrbit = {
             angle: 0,
             radius: 12,
@@ -124,6 +128,7 @@
 
         updateCamera();
 
+        // Ambient and hemisphere lights give soft base light. The point light is the main movable light.
         const ambient = new THREE.AmbientLight(0x3a4657, 0.58);
         scene.add(ambient);
 
@@ -139,6 +144,7 @@
         );
         scene.add(lightMarker);
 
+        // lightState stores the actual light position. target is where the mouse wants it to go.
         const lightState = {
             position: new THREE.Vector3(0, 5, 0),
             target: new THREE.Vector3(0, 5, 0),
@@ -147,6 +153,7 @@
             maxHeight: 10
         };
 
+        // Raycaster converts the 2D mouse position into a 3D point on the road plane.
         const lightControl = {
             hasPointer: true,
             clientX: window.innerWidth / 2,
@@ -162,6 +169,7 @@
         };
 
         function updateLightPosition(delta) {
+            // Smoothly move the light toward the mouse target instead of jumping instantly.
             const alpha = delta === undefined ? 1 : 1 - Math.exp(-lightControl.smoothing * delta);
             lightState.position.lerp(lightState.target, alpha);
             pointLight.position.copy(lightState.position);
@@ -173,6 +181,7 @@
                 return;
             }
 
+            // Convert mouse pixels into normalized device coordinates: -1 to +1.
             const rect = renderer.domElement.getBoundingClientRect();
             const x = ((lightControl.clientX - rect.left) / rect.width) * 2 - 1;
             const y = -((lightControl.clientY - rect.top) / rect.height) * 2 + 1;
@@ -183,6 +192,7 @@
             );
             lightControl.raycaster.setFromCamera(lightControl.pointer, camera);
 
+            // Intersect the mouse ray with the road plane, then place the light above that hit point.
             const ray = lightControl.raycaster.ray;
             let hit = ray.intersectPlane(lightControl.roadPlane, lightControl.hitPoint);
 
@@ -204,6 +214,7 @@
         updateLightPosition();
 
         function createRoadTexture() {
+            // The road texture is generated with canvas: asphalt noise, side lines, and center dashes.
             const size = 1024;
             const c = document.createElement("canvas");
             c.width = size;
@@ -240,6 +251,7 @@
             return tex;
         }
 
+        // Road settings. Multiple segments move and recycle to create an endless-road illusion.
         const roadTexture = createRoadTexture();
         const roadMoveSpeed = 6.2;
         const roadSegmentLength = 40;
@@ -251,6 +263,7 @@
         const commonVertex = document.getElementById("litVertex").textContent;
         const commonFragment = document.getElementById("litFragment").textContent;
 
+        // ShaderMaterial receives the road texture, the light position, and the camera position.
         const roadMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 uTexture: { value: roadTexture },
@@ -267,6 +280,7 @@
             side: THREE.DoubleSide
         });
 
+        // Build seven flat road planes. They are placed one after another on the Z axis.
         for (let i = 0; i < roadSegmentCount; i++) {
             const road = new THREE.Mesh(new THREE.PlaneGeometry(30, roadSegmentLength, 1, 1), roadMaterial);
             road.rotation.x = -Math.PI / 2;
@@ -282,6 +296,7 @@
         const importedWheelMeshes = [];
 
         function fitImportedCarToRoad(carRoot) {
+            // Measure the imported model, scale it to road size, and move it so it sits on the road.
             const bounds = new THREE.Box3().setFromObject(carRoot);
             const size = new THREE.Vector3();
             bounds.getSize(size);
@@ -299,6 +314,7 @@
         }
 
         function prepareImportedCarMaterials(carRoot) {
+            // Traverse visits every child mesh inside the imported GLB model.
             carRoot.traverse(function (child) {
                 if (!child.isMesh) {
                     return;
@@ -326,6 +342,7 @@
         }
 
         function collectImportedCarWheels(carRoot) {
+            // Store wheel and rim meshes so the animation loop can rotate them.
             importedWheelMeshes.length = 0;
 
             carRoot.traverse(function (child) {
@@ -341,9 +358,11 @@
         }
 
         if (THREE.GLTFLoader) {
+            // GLTFLoader loads the .glb car file from assets/models.
             const carLoader = new THREE.GLTFLoader();
 
             if (THREE.DRACOLoader) {
+                // The Ferrari GLB uses Draco compression, so the loader needs these decoder files.
                 const dracoLoader = new THREE.DRACOLoader();
                 dracoLoader.setDecoderPath("js/libs/draco/gltf/");
                 carLoader.setDRACOLoader(dracoLoader);
@@ -352,6 +371,7 @@
             carLoader.load(
                 "assets/models/ferrari.glb",
                 function (gltf) {
+                    // gltf.scene is the actual 3D model hierarchy loaded from ferrari.glb.
                     const importedCar = gltf.scene;
                     importedCar.name = "Real Sports Car";
                     prepareImportedCarMaterials(importedCar);
@@ -376,6 +396,7 @@
         ground.position.y = -0.05;
         scene.add(ground);
 
+        // keyState remembers which camera-control keys are currently pressed.
         const keyState = {};
         const controlKeys = new Set([
             "arrowleft",
@@ -403,6 +424,7 @@
         });
 
         renderer.domElement.addEventListener("pointermove", function (e) {
+            // Mouse movement controls the point light position on the road.
             lightControl.hasPointer = true;
             lightControl.clientX = e.clientX;
             lightControl.clientY = e.clientY;
@@ -410,6 +432,7 @@
         });
 
         renderer.domElement.addEventListener("wheel", function (e) {
+            // Mouse wheel changes the light height.
             e.preventDefault();
             lightState.height = THREE.MathUtils.clamp(
                 lightState.height - e.deltaY * 0.005,
@@ -450,6 +473,7 @@
         const clock = new THREE.Clock();
 
         function animate() {
+            // This function runs every frame: update controls, move road, spin wheels, then render.
             requestAnimationFrame(animate);
 
             const delta = clock.getDelta();
@@ -469,6 +493,7 @@
                 }
             }
 
+            // Rotate imported wheel meshes so the car looks like it is moving.
             const wheelSpin = roadMoveSpeed * 2.6;
             for (let i = 0; i < importedWheelMeshes.length; i++) {
                 importedWheelMeshes[i].rotation.x -= wheelSpin * delta;
