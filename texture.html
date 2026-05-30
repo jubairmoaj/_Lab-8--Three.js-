@@ -45,6 +45,7 @@
     </div>
 
     <script src="js/three.js"></script>
+    <script src="js/GLTFLoader.js"></script>
 
     <script id="litVertex" type="x-shader/x-vertex">
         varying vec2 vUv;
@@ -553,6 +554,79 @@
             wheelGroups.push(group);
         }
 
+        const importedCarGroup = new THREE.Group();
+        importedCarGroup.visible = false;
+        scene.add(importedCarGroup);
+
+        function fitImportedCarToRoad(carRoot) {
+            const bounds = new THREE.Box3().setFromObject(carRoot);
+            const size = new THREE.Vector3();
+            bounds.getSize(size);
+
+            const targetLength = 4.9;
+            const longestSide = Math.max(size.x, size.z);
+            const scale = longestSide > 0 ? targetLength / longestSide : 1;
+            carRoot.scale.setScalar(scale);
+
+            bounds.setFromObject(carRoot);
+            const center = new THREE.Vector3();
+            bounds.getCenter(center);
+
+            carRoot.position.set(-center.x, -bounds.min.y + 0.03, -center.z);
+        }
+
+        function prepareImportedCarMaterials(carRoot) {
+            carRoot.traverse(function (child) {
+                if (!child.isMesh) {
+                    return;
+                }
+
+                child.frustumCulled = false;
+                if (child.material) {
+                    child.material.needsUpdate = true;
+                }
+            });
+        }
+
+        function removeImportedDisplayFabric(carRoot) {
+            const displayMeshes = [];
+
+            carRoot.traverse(function (child) {
+                const materialName = child.material && child.material.name ? child.material.name.toLowerCase() : "";
+                const meshName = child.name ? child.name.toLowerCase() : "";
+
+                if (child.isMesh && (meshName === "fabric" || materialName === "fabric")) {
+                    displayMeshes.push(child);
+                }
+            });
+
+            for (let i = 0; i < displayMeshes.length; i++) {
+                displayMeshes[i].parent.remove(displayMeshes[i]);
+            }
+        }
+
+        if (THREE.GLTFLoader) {
+            const carLoader = new THREE.GLTFLoader();
+            carLoader.load(
+                "assets/models/ToyCar.glb",
+                function (gltf) {
+                    const importedCar = gltf.scene;
+                    importedCar.name = "Khronos Toy Car";
+                    removeImportedDisplayFabric(importedCar);
+                    prepareImportedCarMaterials(importedCar);
+                    fitImportedCarToRoad(importedCar);
+
+                    importedCarGroup.add(importedCar);
+                    importedCarGroup.visible = true;
+                    carGroup.visible = false;
+                },
+                undefined,
+                function (error) {
+                    console.warn("Could not load the imported car model. Keeping the built-in fallback car.", error);
+                }
+            );
+        }
+
         const ground = new THREE.Mesh(
             new THREE.PlaneGeometry(260, 260, 1, 1),
             new THREE.MeshPhongMaterial({ color: 0x243622, shininess: 0 })
@@ -646,12 +720,12 @@
             roadMaterial.uniforms.uViewPos.value.copy(camera.position);
             carMaterial.uniforms.uViewPos.value.copy(camera.position);
 
-            // Move road segments; recycle each old segment to the front one by one.
+            // Move road segments; recycle each old segment to keep the road endless.
             for (let i = 0; i < roadSegments.length; i++) {
                 const segment = roadSegments[i];
-                segment.position.z += roadMoveSpeed * delta;
-                if (segment.position.z > roadHalfSpan) {
-                    segment.position.z -= roadTrackLength;
+                segment.position.z -= roadMoveSpeed * delta;
+                if (segment.position.z < -roadHalfSpan) {
+                    segment.position.z += roadTrackLength;
                 }
             }
 
