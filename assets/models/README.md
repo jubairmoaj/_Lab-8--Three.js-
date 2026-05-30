@@ -1,5 +1,5 @@
 # Model Credits
 
-- `ToyCar.glb`: Khronos glTF Sample Assets, Toy Car. CC0 1.0 Universal.
-- Initial car model: Guido Odendahl.
-- Extensions and scene composition: Eric Chadwick.
+- `ferrari.glb`: three.js example glTF model from `examples/models/gltf/ferrari.glb`.
+- Source project: https://github.com/mrdoob/three.js
+- License: MIT License, copyright three.js authors.

@@ -46,6 +46,7 @@
 
     <script src="js/three.js"></script>
     <script src="js/GLTFLoader.js"></script>
+    <script src="js/DRACOLoader.js"></script>
 
     <script id="litVertex" type="x-shader/x-vertex">
         varying vec2 vUv;
@@ -138,34 +139,6 @@
         );
         scene.add(lightMarker);
 
-        const lightGroundMarker = new THREE.Mesh(
-            new THREE.RingGeometry(0.42, 0.56, 32),
-            new THREE.MeshBasicMaterial({
-                color: 0xfff2cc,
-                transparent: true,
-                opacity: 0.78,
-                side: THREE.DoubleSide
-            })
-        );
-        lightGroundMarker.rotation.x = -Math.PI / 2;
-        lightGroundMarker.position.y = 0.025;
-        lightGroundMarker.visible = false;
-        scene.add(lightGroundMarker);
-
-        const lightGuide = new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(0, 0, 0),
-                new THREE.Vector3(0, 1, 0)
-            ]),
-            new THREE.LineBasicMaterial({
-                color: 0xfff2cc,
-                transparent: true,
-                opacity: 0.55
-            })
-        );
-        lightGuide.visible = false;
-        scene.add(lightGuide);
-
         const lightState = {
             position: new THREE.Vector3(0, 5, 0),
             target: new THREE.Vector3(0, 5, 0),
@@ -193,14 +166,6 @@
             lightState.position.lerp(lightState.target, alpha);
             pointLight.position.copy(lightState.position);
             lightMarker.position.copy(pointLight.position);
-
-            lightGroundMarker.position.x = pointLight.position.x;
-            lightGroundMarker.position.z = pointLight.position.z;
-
-            const guidePosition = lightGuide.geometry.attributes.position;
-            guidePosition.setXYZ(0, pointLight.position.x, lightGroundMarker.position.y, pointLight.position.z);
-            guidePosition.setXYZ(1, pointLight.position.x, pointLight.position.y, pointLight.position.z);
-            guidePosition.needsUpdate = true;
         }
 
         function setLightTargetFromPointer() {
@@ -275,99 +240,7 @@
             return tex;
         }
 
-        function createCarPaintTexture() {
-            const size = 512;
-            const c = document.createElement("canvas");
-            c.width = size;
-            c.height = size;
-            const g = c.getContext("2d");
-
-            const grad = g.createLinearGradient(0, 0, size, size);
-            grad.addColorStop(0, "#d84f38");
-            grad.addColorStop(0.48, "#a5271c");
-            grad.addColorStop(1, "#6e1814");
-            g.fillStyle = grad;
-            g.fillRect(0, 0, size, size);
-
-            for (let i = 0; i < 4200; i++) {
-                const x = Math.random() * size;
-                const y = Math.random() * size;
-                const alpha = 0.04 + Math.random() * 0.09;
-                g.fillStyle = "rgba(255,255,255," + alpha + ")";
-                g.fillRect(x, y, 1, 1);
-            }
-
-            g.fillStyle = "rgba(255,255,255,0.16)";
-            g.fillRect(0, size * 0.22, size, size * 0.08);
-
-            const tex = new THREE.CanvasTexture(c);
-            tex.wrapS = THREE.RepeatWrapping;
-            tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(1, 1);
-            tex.encoding = THREE.sRGBEncoding;
-            return tex;
-        }
-
-        function createTireTexture() {
-            const c = document.createElement("canvas");
-            c.width = 256;
-            c.height = 64;
-            const g = c.getContext("2d");
-
-            g.fillStyle = "#3d3d3d";
-            g.fillRect(0, 0, c.width, c.height);
-
-            for (let x = 0; x < c.width; x += 12) {
-                g.fillStyle = x % 24 === 0 ? "#2f2f2f" : "#515151";
-                g.fillRect(x, 0, 6, c.height);
-            }
-
-            for (let y = 4; y < c.height; y += 10) {
-                g.fillStyle = "rgba(255,255,255,0.08)";
-                g.fillRect(0, y, c.width, 2);
-            }
-
-            const tex = new THREE.CanvasTexture(c);
-            tex.wrapS = THREE.RepeatWrapping;
-            tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(1, 1);
-            tex.encoding = THREE.sRGBEncoding;
-            return tex;
-        }
-
-        function createRimTexture() {
-            const size = 256;
-            const c = document.createElement("canvas");
-            c.width = size;
-            c.height = size;
-            const g = c.getContext("2d");
-            const center = size / 2;
-
-            const rad = g.createRadialGradient(center, center, 8, center, center, center);
-            rad.addColorStop(0, "#ffffff");
-            rad.addColorStop(0.4, "#d7dce3");
-            rad.addColorStop(0.8, "#8f9aa8");
-            rad.addColorStop(1, "#5f6774");
-            g.fillStyle = rad;
-            g.fillRect(0, 0, size, size);
-
-            g.strokeStyle = "rgba(255,255,255,0.5)";
-            g.lineWidth = 6;
-            g.beginPath();
-            g.arc(center, center, size * 0.33, 0, Math.PI * 2);
-            g.stroke();
-
-            const tex = new THREE.CanvasTexture(c);
-            tex.wrapS = THREE.ClampToEdgeWrapping;
-            tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.encoding = THREE.sRGBEncoding;
-            return tex;
-        }
-
         const roadTexture = createRoadTexture();
-        const carPaintTexture = createCarPaintTexture();
-        const tireTexture = createTireTexture();
-        const rimTexture = createRimTexture();
         const roadMoveSpeed = 6.2;
         const roadSegmentLength = 40;
         const roadSegmentCount = 7;
@@ -403,160 +276,10 @@
             roadSegments.push(road);
         }
 
-        const carMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                uTexture: { value: carPaintTexture },
-                uLightPos: { value: pointLight.position },
-                uLightColor: { value: new THREE.Color(1.0, 0.95, 0.86) },
-                uAmbientColor: { value: new THREE.Color(0.24, 0.23, 0.23) },
-                uTint: { value: new THREE.Color(1.0, 0.9, 0.85) },
-                uViewPos: { value: camera.position.clone() },
-                uUvScale: { value: new THREE.Vector2(1, 1) },
-                uUvOffset: { value: new THREE.Vector2(0, 0) }
-            },
-            vertexShader: commonVertex,
-            fragmentShader: commonFragment
-        });
-
-        const tireMaterial = new THREE.MeshPhongMaterial({
-            map: tireTexture,
-            color: 0x565656,
-            shininess: 10
-        });
-
-        const rimMaterial = new THREE.MeshPhongMaterial({
-            map: rimTexture,
-            color: 0xd0d7df,
-            shininess: 145
-        });
-
-        const glassMaterial = new THREE.MeshPhongMaterial({
-            color: 0x8fb9db,
-            transparent: true,
-            opacity: 0.5,
-            shininess: 120,
-            specular: 0xd1e9ff
-        });
-
-        const trimMaterial = new THREE.MeshPhongMaterial({
-            color: 0x131519,
-            shininess: 70
-        });
-
-        const headlightMaterial = new THREE.MeshPhongMaterial({
-            color: 0xfff3cb,
-            emissive: 0x4a3300,
-            shininess: 120
-        });
-
-        const tailLightMaterial = new THREE.MeshPhongMaterial({
-            color: 0xff3a31,
-            emissive: 0x3a0909,
-            shininess: 90
-        });
-
-        const carGroup = new THREE.Group();
-        scene.add(carGroup);
-        // Align car heading with the road direction.
-        carGroup.rotation.y = Math.PI / 2;
-
-        const chassis = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.7, 2.1), carMaterial);
-        chassis.position.y = 0.98;
-        carGroup.add(chassis);
-
-        const hood = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.45, 2.0), carMaterial);
-        hood.position.set(1.25, 1.33, 0);
-        carGroup.add(hood);
-
-        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.75, 1.8), carMaterial);
-        cabin.position.set(-0.1, 1.65, 0);
-        carGroup.add(cabin);
-
-        const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.42, 1.95), carMaterial);
-        trunk.position.set(-1.55, 1.28, 0);
-        carGroup.add(trunk);
-
-        const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 2.06), trimMaterial);
-        frontBumper.position.set(2.18, 0.83, 0);
-        carGroup.add(frontBumper);
-
-        const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 2.06), trimMaterial);
-        rearBumper.position.set(-2.18, 0.83, 0);
-        carGroup.add(rearBumper);
-
-        const windshield = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.48, 1.62), glassMaterial);
-        windshield.position.set(0.55, 1.64, 0);
-        windshield.rotation.z = THREE.MathUtils.degToRad(18);
-        carGroup.add(windshield);
-
-        const rearWindow = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.45, 1.6), glassMaterial);
-        rearWindow.position.set(-0.8, 1.62, 0);
-        rearWindow.rotation.z = THREE.MathUtils.degToRad(-14);
-        carGroup.add(rearWindow);
-
-        const sideWindowLeft = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 0.05), glassMaterial);
-        sideWindowLeft.position.set(-0.1, 1.66, 0.89);
-        carGroup.add(sideWindowLeft);
-
-        const sideWindowRight = sideWindowLeft.clone();
-        sideWindowRight.position.z = -0.89;
-        carGroup.add(sideWindowRight);
-
-        const headlightL = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), headlightMaterial);
-        headlightL.position.set(2.13, 1.0, 0.65);
-        carGroup.add(headlightL);
-
-        const headlightR = headlightL.clone();
-        headlightR.position.z = -0.65;
-        carGroup.add(headlightR);
-
-        const tailLightL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.32), tailLightMaterial);
-        tailLightL.position.set(-2.14, 0.98, 0.68);
-        carGroup.add(tailLightL);
-
-        const tailLightR = tailLightL.clone();
-        tailLightR.position.z = -0.68;
-        carGroup.add(tailLightR);
-
-        const wheelGroups = [];
-        const tireGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.42, 28);
-        const rimGeo = new THREE.CylinderGeometry(0.23, 0.23, 0.05, 22);
-
-        const wheelPositions = [
-            [1.38, 0.5, 1.08],
-            [1.38, 0.5, -1.08],
-            [-1.3, 0.5, 1.08],
-            [-1.3, 0.5, -1.08]
-        ];
-
-        for (let i = 0; i < wheelPositions.length; i++) {
-            const group = new THREE.Group();
-            group.position.set(wheelPositions[i][0], wheelPositions[i][1], wheelPositions[i][2]);
-
-            const tire = new THREE.Mesh(tireGeo, tireMaterial);
-            tire.rotation.x = Math.PI / 2;
-            group.add(tire);
-
-            const rimNear = new THREE.Mesh(rimGeo, rimMaterial);
-            rimNear.rotation.x = Math.PI / 2;
-            rimNear.position.z = 0.19;
-            group.add(rimNear);
-
-            const rimFar = rimNear.clone();
-            rimFar.position.z = -0.19;
-            group.add(rimFar);
-
-            const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.44, 14), trimMaterial);
-            cap.rotation.x = Math.PI / 2;
-            group.add(cap);
-
-            carGroup.add(group);
-            wheelGroups.push(group);
-        }
-
         const importedCarGroup = new THREE.Group();
         importedCarGroup.visible = false;
         scene.add(importedCarGroup);
+        const importedWheelMeshes = [];
 
         function fitImportedCarToRoad(carRoot) {
             const bounds = new THREE.Box3().setFromObject(carRoot);
@@ -583,46 +306,64 @@
 
                 child.frustumCulled = false;
                 if (child.material) {
-                    child.material.needsUpdate = true;
+                    const materials = Array.isArray(child.material) ? child.material : [child.material];
+
+                    for (let i = 0; i < materials.length; i++) {
+                        const material = materials[i];
+                        const materialName = material.name ? material.name.toLowerCase() : "";
+
+                        if (materialName.indexOf("glass") !== -1) {
+                            material.transparent = true;
+                            material.opacity = 0.48;
+                            material.depthWrite = false;
+                            material.side = THREE.DoubleSide;
+                        }
+
+                        material.needsUpdate = true;
+                    }
                 }
             });
         }
 
-        function removeImportedDisplayFabric(carRoot) {
-            const displayMeshes = [];
+        function collectImportedCarWheels(carRoot) {
+            importedWheelMeshes.length = 0;
 
             carRoot.traverse(function (child) {
-                const materialName = child.material && child.material.name ? child.material.name.toLowerCase() : "";
-                const meshName = child.name ? child.name.toLowerCase() : "";
+                if (!child.isMesh) {
+                    return;
+                }
 
-                if (child.isMesh && (meshName === "fabric" || materialName === "fabric")) {
-                    displayMeshes.push(child);
+                const meshName = child.name ? child.name.toLowerCase() : "";
+                if (/^wheel(_\d+)?$/.test(meshName) || /^rim_/.test(meshName)) {
+                    importedWheelMeshes.push(child);
                 }
             });
-
-            for (let i = 0; i < displayMeshes.length; i++) {
-                displayMeshes[i].parent.remove(displayMeshes[i]);
-            }
         }
 
         if (THREE.GLTFLoader) {
             const carLoader = new THREE.GLTFLoader();
+
+            if (THREE.DRACOLoader) {
+                const dracoLoader = new THREE.DRACOLoader();
+                dracoLoader.setDecoderPath("js/libs/draco/gltf/");
+                carLoader.setDRACOLoader(dracoLoader);
+            }
+
             carLoader.load(
-                "assets/models/ToyCar.glb",
+                "assets/models/ferrari.glb",
                 function (gltf) {
                     const importedCar = gltf.scene;
-                    importedCar.name = "Khronos Toy Car";
-                    removeImportedDisplayFabric(importedCar);
+                    importedCar.name = "Real Sports Car";
                     prepareImportedCarMaterials(importedCar);
                     fitImportedCarToRoad(importedCar);
+                    collectImportedCarWheels(importedCar);
 
                     importedCarGroup.add(importedCar);
                     importedCarGroup.visible = true;
-                    carGroup.visible = false;
                 },
                 undefined,
                 function (error) {
-                    console.warn("Could not load the imported car model. Keeping the built-in fallback car.", error);
+                    console.warn("Could not load the imported car model.", error);
                 }
             );
         }
@@ -718,21 +459,19 @@
             updateLightPosition(delta);
 
             roadMaterial.uniforms.uViewPos.value.copy(camera.position);
-            carMaterial.uniforms.uViewPos.value.copy(camera.position);
 
             // Move road segments; recycle each old segment to keep the road endless.
             for (let i = 0; i < roadSegments.length; i++) {
                 const segment = roadSegments[i];
-                segment.position.z -= roadMoveSpeed * delta;
-                if (segment.position.z < -roadHalfSpan) {
-                    segment.position.z += roadTrackLength;
+                segment.position.z += roadMoveSpeed * delta;
+                if (segment.position.z > roadHalfSpan) {
+                    segment.position.z -= roadTrackLength;
                 }
             }
 
-            // Animation: car wheels rotate.
-            const wheelSpin = 5.8;
-            for (let i = 0; i < wheelGroups.length; i++) {
-                wheelGroups[i].rotation.z -= wheelSpin * delta;
+            const wheelSpin = roadMoveSpeed * 2.6;
+            for (let i = 0; i < importedWheelMeshes.length; i++) {
+                importedWheelMeshes[i].rotation.x -= wheelSpin * delta;
             }
 
             renderer.render(scene, camera);
